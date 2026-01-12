@@ -5,11 +5,12 @@ log_level: info
 log_location: ./logs/pc.log
 log_format: json
 
+# Pass-through from .env (with defaults)
 environment:
-  - 'RUST_LOG=info'
-  - 'RUST_BACKTRACE=1'
-  - 'IBKR_HOST=127.0.0.1'
-  - 'IBKR_PORT=4002'
+  - 'RUST_LOG=${RUST_LOG:-info}'
+  - 'RUST_BACKTRACE=${RUST_BACKTRACE:-1}'
+  - 'IBKR_HOST=${IBKR_HOST:-127.0.0.1}'
+  - 'IBKR_PORT=${IBKR_PORT:-4002}'
 
 processes:
   #============================================================================
