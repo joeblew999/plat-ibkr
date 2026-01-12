@@ -1,0 +1,8 @@
+/target
+/.bin/
+/.src/
+/.data/
+/.gateway/
+*.log
+.env
+.env.local

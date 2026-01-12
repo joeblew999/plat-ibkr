@@ -1,0 +1,71 @@
+# https://f1bonacc1.github.io/process-compose/
+version: "0.5"
+
+log_level: info
+log_location: ./logs/pc.log
+log_format: json
+
+environment:
+  - 'RUST_LOG=info'
+  - 'RUST_BACKTRACE=1'
+  - 'IBKR_HOST=127.0.0.1'
+  - 'IBKR_PORT=4002'
+
+processes:
+  #============================================================================
+  # IB Gateway (Docker) - starts first
+  #============================================================================
+  gateway:
+    command: |
+      docker ps --format '{{.Names}}' | grep -q '^ibgateway$' && echo "Gateway already running" && exit 0
+      task gateway:docker
+    working_dir: .
+    availability:
+      restart: "no"
+    ready_log_line: "Started!"
+
+  #============================================================================
+  # Main application - waits for gateway
+  #============================================================================
+  app:
+    command: task run
+    working_dir: .
+    availability:
+      restart: on_failure
+      backoff_seconds: 5
+      max_restarts: 3
+    ready_log_line: "Connected successfully"
+    depends_on:
+      gateway:
+        condition: process_completed_successfully
+
+  #============================================================================
+  # Development mode with auto-reload
+  #============================================================================
+  dev:
+    command: task rust:dev
+    working_dir: .
+    disabled: true
+    availability:
+      restart: on_failure
+    depends_on:
+      gateway:
+        condition: process_completed_successfully
+
+  #============================================================================
+  # Run tests in watch mode
+  #============================================================================
+  test-watch:
+    command: task rust:test:watch
+    working_dir: .
+    disabled: true
+
+  #============================================================================
+  # Checks (one-shot)
+  #============================================================================
+  check:
+    command: task check
+    working_dir: .
+    disabled: true
+    availability:
+      restart: "no"

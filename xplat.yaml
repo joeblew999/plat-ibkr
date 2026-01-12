@@ -1,0 +1,82 @@
+# plat-ibkr: IBKR stocks trading platform
+#
+# Using rust-ibapi (ibapi crate) for Interactive Brokers API integration
+# Users just need xplat installed - it bundles task + process-compose
+
+name: plat-ibkr
+version: 0.1.0
+description: IBKR stocks trading platform using rust-ibapi
+author: joeblew999
+license: MIT
+
+# Binary installation
+binary:
+  name: plat-ibkr
+  source:
+    cargo: .
+
+# Taskfile for development commands
+taskfile:
+  path: Taskfile.yml
+
+# Process configuration for process-compose
+processes:
+  app:
+    command: task run
+    description: Main IBKR trading application
+    disabled: false
+
+# Environment variables
+env:
+  optional:
+    - name: RUST_LOG
+      description: Rust logging level
+      default: "info"
+    - name: RUST_BACKTRACE
+      description: Enable backtrace on panic
+      default: "1"
+    - name: IBKR_HOST
+      description: IBKR TWS/Gateway host
+      default: "127.0.0.1"
+    - name: IBKR_PORT
+      description: IBKR TWS/Gateway port
+      default: "4001"
+
+# Dependencies - only need xplat which bundles task + process-compose
+dependencies:
+  build:
+    - rust>=1.75
+  runtime: []  # xplat provides task + process-compose
+
+# Tools installed via taskfile
+tools:
+  ibapi:
+    description: Rust IBKR API library (cloned from wboayue/rust-ibapi)
+    install: task src:clone
+
+# Project-specific gitignore patterns
+gitignore:
+  patterns:
+    - "/target"
+    - "/.bin/"
+    - "/.src/"
+    - "/.data/"
+    - "/.gateway/"
+    - "*.log"
+    - ".env"
+    - ".env.local"
+
+# Quick start
+quickstart: |
+  # Install xplat (one-time, provides task + process-compose)
+  curl -fsSL https://github.com/joeblew999/xplat/releases/latest/download/install.sh | bash
+
+  # Setup development environment
+  task setup
+
+  # Start IB Gateway (Docker - easiest option)
+  # TWS_USERID=xxx TWS_PASSWORD=xxx task gateway:docker
+
+  # Build and run
+  task build
+  task run

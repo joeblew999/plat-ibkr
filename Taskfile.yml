@@ -1,0 +1,506 @@
+# https://taskfile.dev
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  # Standard xplat variable pattern - ALL prefixed with IBKR_
+  IBKR_BIN_NAME: plat-ibkr
+  IBKR_UPSTREAM_REPO: https://github.com/wboayue/rust-ibapi.git
+  IBKR_VERSION: '{{.IBKR_VERSION | default "main"}}'
+  IBKR_SRC: '{{.TASKFILE_DIR}}/.src'
+  IBKR_BIN: '{{.TASKFILE_DIR}}/.bin'
+  IBKR_BIN_PATH: '{{.IBKR_BIN}}/{{.IBKR_BIN_NAME}}'
+  IBKR_DATA: '{{.TASKFILE_DIR}}/.data'
+  IBKR_PORT: '{{.IBKR_PORT | default "4001"}}'
+  IBKR_GATEWAY_BASE: https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone
+  IBKR_GATEWAY_DIR: '{{.TASKFILE_DIR}}/.gateway'
+
+tasks:
+  #============================================================================
+  # Top-level commands (convenience aliases)
+  #============================================================================
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the project
+    cmds:
+      - task: rust:build
+
+  run:
+    desc: Run the application
+    cmds:
+      - task: rust:run
+
+  run:json:
+    desc: Run with JSON output
+    cmds:
+      - cargo run -- --format json --no-market-data
+
+  run:csv:
+    desc: Run with CSV output
+    cmds:
+      - cargo run -- --format csv --no-market-data
+
+  run:quote:
+    desc: "Get quote for a symbol (usage: task run:quote -- TSLA)"
+    cmds:
+      - cargo run -- --format json --symbol {{.CLI_ARGS}} | jq '.market_data'
+
+  test:
+    desc: Run tests
+    cmds:
+      - task: rust:test
+
+  check:
+    desc: Run all checks (fmt, lint, test)
+    cmds:
+      - task: rust:check
+
+  setup:
+    desc: Setup development environment
+    cmds:
+      - task: rust:setup
+      - task: rust:deps
+
+  #============================================================================
+  # src: Source code management
+  #============================================================================
+  src:clone:
+    desc: Clone rust-ibapi source
+    cmds:
+      - mkdir -p {{.IBKR_SRC}}
+      - git clone --branch {{.IBKR_VERSION}} --depth 1 {{.IBKR_UPSTREAM_REPO}} {{.IBKR_SRC}}/rust-ibapi
+    status:
+      - test -d {{.IBKR_SRC}}/rust-ibapi
+
+  src:update:
+    desc: Update rust-ibapi source
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - git fetch origin
+      - git checkout {{.IBKR_VERSION}}
+      - git pull origin {{.IBKR_VERSION}}
+
+  #============================================================================
+  # example - Run rust-ibapi examples (requires gateway running)
+  #============================================================================
+  example:run:
+    desc: "Run an example (usage: task example:run -- account_summary)"
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example {{.CLI_ARGS}}
+
+  example:list:
+    desc: List available examples
+    deps: [src:clone]
+    cmds:
+      - |
+        echo "Available examples:"
+        echo ""
+        echo "Account & Portfolio:"
+        echo "  task example -- account_summary"
+        echo "  task example -- positions"
+        echo "  task example -- pnl"
+        echo ""
+        echo "Orders & Trading:"
+        echo "  task example -- place_order"
+        echo "  task example -- orders"
+        echo "  task example -- executions"
+        echo "  task example -- bracket_order"
+        echo ""
+        echo "Market Data:"
+        echo "  task example -- market_data"
+        echo "  task example -- historical_data"
+        echo "  task example -- stream_bars"
+        echo "  task example -- tick_by_tick_bid_ask"
+        echo ""
+        echo "Options:"
+        echo "  task example -- option_chain"
+        echo "  task example -- options_purchase"
+        echo ""
+        echo "Research:"
+        echo "  task example -- contract_details"
+        echo "  task example -- matching_symbols"
+        echo "  task example -- scanner_subscription_active_stocks"
+
+  example:account:
+    desc: Run account_summary example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example account_summary
+
+  example:positions:
+    desc: Run positions example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example positions
+
+  example:orders:
+    desc: Run orders example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example orders
+
+  example:historical:
+    desc: Run historical_data example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example historical_data
+
+  example:market:
+    desc: Run market_data example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example market_data
+
+  example:stream:
+    desc: Run stream_bars example
+    deps: [src:clone]
+    dir: '{{.IBKR_SRC}}/rust-ibapi'
+    cmds:
+      - cargo run --features sync --example stream_bars
+
+  #============================================================================
+  # bin: Binary management
+  #============================================================================
+  bin:build:
+    desc: Build release binary to .bin/
+    cmds:
+      - mkdir -p {{.IBKR_BIN}}
+      - cargo build --release
+      - cp target/release/{{.IBKR_BIN_NAME}} {{.IBKR_BIN_PATH}}
+      - |
+        {
+          echo "timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "checksum: $(shasum -a 256 {{.IBKR_BIN_PATH}} | awk '{print $1}')"
+        } > {{.IBKR_BIN}}/.version
+    status:
+      - test -f {{.IBKR_BIN_PATH}}
+
+  bin:download:
+    desc: Download pre-built binary
+    cmds:
+      - mkdir -p {{.IBKR_BIN}}
+      - echo "Download not yet available - use bin:build"
+    status:
+      - test -f {{.IBKR_BIN_PATH}}
+
+  bin:ensure:
+    desc: Ensure binary exists
+    status:
+      - test -f {{.IBKR_BIN_PATH}}
+    cmds:
+      - task: bin:build
+
+  bin:run:
+    desc: Run release binary
+    deps: [bin:ensure]
+    cmds:
+      - '{{.IBKR_BIN_PATH}}'
+
+  bin:package:
+    desc: Package binary for release
+    vars:
+      GOOS: '{{.GOOS | default OS}}'
+      GOARCH: '{{.GOARCH | default ARCH}}'
+      DIST: '{{.DIST | default .DIST_DIR}}'
+    cmds:
+      - tar -czvf {{.DIST}}/{{.IBKR_BIN_NAME}}-{{.GOOS}}-{{.GOARCH}}.tar.gz -C {{.IBKR_BIN}} {{.IBKR_BIN_NAME}}
+
+  #============================================================================
+  # rust: Rust toolchain tasks
+  #============================================================================
+  rust:setup:
+    desc: Ensure Rust toolchain is installed
+    cmds:
+      - rustup update stable
+      - rustup default stable
+    status:
+      - which rustc
+
+  rust:init:
+    desc: Initialize a new Rust project
+    cmds:
+      - cargo init --name {{.IBKR_BIN_NAME}}
+      - echo 'ibapi = { version = "2", features = ["sync"] }' >> Cargo.toml
+    status:
+      - test -f Cargo.toml
+
+  rust:deps:
+    desc: Download Cargo dependencies
+    cmds:
+      - cargo fetch
+
+  rust:build:
+    desc: Build (debug)
+    cmds:
+      - cargo build
+
+  rust:build:release:
+    desc: Build (release)
+    cmds:
+      - cargo build --release
+
+  rust:run:
+    desc: Run application
+    cmds:
+      - cargo run
+
+  rust:dev:
+    desc: Run with auto-reload
+    cmds:
+      - cargo watch -x run
+
+  rust:test:
+    desc: Run tests
+    cmds:
+      - cargo test
+
+  rust:test:watch:
+    desc: Run tests in watch mode
+    cmds:
+      - cargo watch -x test
+
+  rust:fmt:
+    desc: Format code
+    cmds:
+      - cargo fmt
+
+  rust:fmt:check:
+    desc: Check formatting
+    cmds:
+      - cargo fmt --check
+
+  rust:lint:
+    desc: Run clippy
+    cmds:
+      - cargo clippy -- -D warnings
+
+  rust:check:
+    desc: Run all checks (fmt, lint, test)
+    cmds:
+      - task: rust:fmt:check
+      - task: rust:lint
+      - task: rust:test
+
+  rust:docs:
+    desc: Generate and open docs
+    cmds:
+      - cargo doc --open
+
+  rust:docs:build:
+    desc: Generate docs
+    cmds:
+      - cargo doc
+
+  rust:clean:
+    desc: Clean build artifacts
+    cmds:
+      - cargo clean
+
+  #============================================================================
+  # gateway: IB Gateway tasks
+  #============================================================================
+  gateway:download:
+    desc: Download IB Gateway installer
+    vars:
+      IBKR_OS:
+        sh: uname -s | tr '[:upper:]' '[:lower:]'
+      IBKR_ARCH:
+        sh: uname -m
+    cmds:
+      - mkdir -p {{.IBKR_GATEWAY_DIR}}
+      - |
+        case "{{.IBKR_OS}}-{{.IBKR_ARCH}}" in
+          darwin-arm64)
+            curl -L "{{.IBKR_GATEWAY_BASE}}/ibgateway-stable-standalone-macos-arm.dmg" -o {{.IBKR_GATEWAY_DIR}}/ibgateway.dmg
+            echo "Downloaded: ibgateway.dmg (macOS ARM)"
+            ;;
+          darwin-x86_64)
+            curl -L "{{.IBKR_GATEWAY_BASE}}/ibgateway-stable-standalone-macosx-x64.dmg" -o {{.IBKR_GATEWAY_DIR}}/ibgateway.dmg
+            echo "Downloaded: ibgateway.dmg (macOS Intel)"
+            ;;
+          linux-x86_64)
+            curl -L "{{.IBKR_GATEWAY_BASE}}/ibgateway-stable-standalone-linux-x64.sh" -o {{.IBKR_GATEWAY_DIR}}/ibgateway.sh
+            chmod +x {{.IBKR_GATEWAY_DIR}}/ibgateway.sh
+            echo "Downloaded: ibgateway.sh (Linux x64)"
+            ;;
+          linux-aarch64)
+            curl -L "{{.IBKR_GATEWAY_BASE}}/ibgateway-stable-standalone-linux-arm.sh" -o {{.IBKR_GATEWAY_DIR}}/ibgateway.sh
+            chmod +x {{.IBKR_GATEWAY_DIR}}/ibgateway.sh
+            echo "Downloaded: ibgateway.sh (Linux ARM)"
+            ;;
+          *)
+            echo "Unsupported: {{.IBKR_OS}}-{{.IBKR_ARCH}}" && exit 1
+            ;;
+        esac
+    status:
+      - test -f {{.IBKR_GATEWAY_DIR}}/ibgateway.dmg || test -f {{.IBKR_GATEWAY_DIR}}/ibgateway.sh
+
+  gateway:install:
+    desc: Install IB Gateway (macOS)
+    deps: [gateway:download]
+    platforms: [darwin]
+    cmds:
+      - open {{.IBKR_GATEWAY_DIR}}/ibgateway.dmg
+
+  gateway:docker:
+    desc: Run IB Gateway in Docker (paper)
+    vars:
+      IBKR_TRADING_MODE: '{{.IBKR_TRADING_MODE | default "paper"}}'
+    cmds:
+      - |
+        if [ -z "${TWS_USERID:-}" ] || [ -z "${TWS_PASSWORD:-}" ]; then
+          echo "ERROR: TWS_USERID and TWS_PASSWORD required"
+          echo ""
+          echo "Usage: TWS_USERID=xxx TWS_PASSWORD=xxx task gateway:docker"
+          echo "Or create .env file (see .env.example)"
+          exit 1
+        fi
+        # Stop any existing container first
+        docker stop ibgateway 2>/dev/null || true
+        docker rm ibgateway 2>/dev/null || true
+        echo "Starting IB Gateway ({{.IBKR_TRADING_MODE}})..."
+        docker run -d --name ibgateway \
+          --network host \
+          -e TWS_USERID="${TWS_USERID}" \
+          -e TWS_PASSWORD="${TWS_PASSWORD}" \
+          -e TRADING_MODE={{.IBKR_TRADING_MODE}} \
+          -e READ_ONLY_API=no \
+          -e TWS_ACCEPT_INCOMING=accept \
+          ghcr.io/gnzsnz/ib-gateway:stable
+        echo ""
+        echo "Started! API: localhost:4002 (paper) / 4001 (live)"
+        echo "Logs: task gateway:docker:logs"
+
+  gateway:docker:live:
+    desc: Run IB Gateway in Docker (LIVE)
+    cmds:
+      - IBKR_TRADING_MODE=live task gateway:docker
+
+  gateway:docker:stop:
+    desc: Stop IB Gateway container
+    cmds:
+      - docker stop ibgateway 2>/dev/null || true
+      - docker rm ibgateway 2>/dev/null || true
+      - echo "Stopped."
+
+  gateway:docker:restart:
+    desc: Restart IB Gateway container
+    cmds:
+      - task: gateway:docker:stop
+      - task: gateway:docker
+
+  gateway:docker:status:
+    desc: Check IB Gateway status
+    cmds:
+      - |
+        if docker ps --format '{{.Names}}' | grep -q '^ibgateway$'; then
+          echo "RUNNING"
+          docker ps --filter name=ibgateway --format "table {{.Status}}\t{{.Ports}}"
+        else
+          echo "NOT RUNNING - start with: task gateway:docker"
+        fi
+
+  gateway:docker:logs:
+    desc: Show IB Gateway logs
+    cmds:
+      - docker logs -f ibgateway
+
+  gateway:docker:vnc:
+    desc: Open VNC to IB Gateway
+    platforms: [darwin]
+    cmds:
+      - open vnc://localhost:5900
+
+  #============================================================================
+  # config: Configuration tasks
+  #============================================================================
+  config:version:
+    desc: Output pinned version
+    silent: true
+    cmds:
+      - echo "{{.IBKR_VERSION}}"
+
+  config:port:
+    desc: Output configured port
+    silent: true
+    cmds:
+      - echo "{{.IBKR_PORT}}"
+
+  #============================================================================
+  # clean: Cleanup tasks
+  #============================================================================
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - task: rust:clean
+
+  clean:all:
+    desc: Clean everything
+    cmds:
+      - rm -rf {{.IBKR_SRC}} {{.IBKR_BIN}} {{.IBKR_DATA}} {{.IBKR_GATEWAY_DIR}} target
+
+  clean:bin:
+    desc: Clean .bin/
+    cmds:
+      - rm -rf {{.IBKR_BIN}}
+
+  clean:data:
+    desc: Clean .data/
+    cmds:
+      - rm -rf {{.IBKR_DATA}}
+
+  clean:src:
+    desc: Clean .src/
+    cmds:
+      - rm -rf {{.IBKR_SRC}}
+
+  #============================================================================
+  # xplat: xplat generation tasks
+  #============================================================================
+  xplat:gen:
+    desc: Generate all xplat files
+    cmds:
+      - xplat manifest gen-all
+
+  xplat:gen:gitignore:
+    desc: Generate .gitignore
+    cmds:
+      - xplat manifest gen-gitignore
+
+  xplat:gen:process:
+    desc: Generate process-compose.yaml
+    cmds:
+      - xplat manifest gen-process
+
+  xplat:gen:taskfile:
+    desc: Generate Taskfile with remote includes
+    cmds:
+      - xplat manifest gen-taskfile
+
+  xplat:gen:workflow:
+    desc: Generate CI workflow
+    cmds:
+      - xplat manifest gen-workflow
+
+  xplat:bootstrap:
+    desc: Bootstrap standard plat-* files
+    cmds:
+      - xplat manifest bootstrap
+
+  xplat:bootstrap:check:
+    desc: Check conformity
+    cmds:
+      - xplat manifest bootstrap --check
