@@ -1,6 +1,10 @@
 # https://taskfile.dev
 version: '3'
 
+
+includes:
+  google:
+    taskfile: https://github.com/joeblew999/ubuntu-website.git//taskfiles/Taskfile.google.yml?ref=v0.1.0
 dotenv: ['.env']
 
 vars:
